@@ -1,0 +1,125 @@
+#include <Arduino.h>
+// #include <ESP32Encoder.h>  // Disabled for testing
+#include <FastAccelStepper.h>
+// #include <PID_v1.h>        // Disabled for testing
+
+// --- Hardware Pin Definitions ---
+const int PIN_STEP = 12;
+const int PIN_DIR  = 13;
+const int PIN_ENA  = 15; // CL57T Enable
+
+// --- Mechanical Constants ---
+const double SCREW_LEAD_MM = 5.0;
+const int STEPS_PER_REV = 1600;
+const double STEPS_PER_MM = (double)STEPS_PER_REV / SCREW_LEAD_MM;
+
+// --- Objects ---
+FastAccelStepperEngine engine = FastAccelStepperEngine();
+FastAccelStepper *stepper = NULL;
+
+// --- State ---
+bool enabled = false;
+String cmdBuffer = "";
+
+void setup() {
+    Serial.begin(115200);
+    delay(2000);
+
+    engine.init();
+    stepper = engine.stepperConnectToPin(PIN_STEP);
+
+    if (stepper) {
+        stepper->setDirectionPin(PIN_DIR, true, 0);
+        stepper->setEnablePin(PIN_ENA);
+        stepper->setAcceleration(10000);
+        stepper->setSpeedInHz(4000);
+        Serial.println("Stepper OK");
+    } else {
+        Serial.println("ERROR: Stepper init failed");
+        while(1);
+    }
+
+    stepper->setCurrentPosition(0);
+
+    Serial.println("=============================");
+    Serial.println("Manual Move Test");
+    Serial.print("Steps/mm: ");
+    Serial.println(STEPS_PER_MM, 1);
+    Serial.println("Commands:");
+    Serial.println("  start  - Energize motor");
+    Serial.println("  stop   - De-energize motor");
+    Serial.println("  pos    - Print current position");
+    Serial.println("  zero   - Reset position to 0");
+    Serial.println("  <num>  - Move by that many mm (e.g. 10, -5)");
+    Serial.println("=============================");
+    Serial.println("Type 'start' to energize the motor.");
+    Serial.print("> ");
+}
+
+void loop() {
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\n' || c == '\r') {
+            cmdBuffer.trim();
+            if (cmdBuffer.length() > 0) {
+                if (cmdBuffer == "start") {
+                    stepper->enableOutputs();
+                    enabled = true;
+                    Serial.println("Motor ENABLED. Type a distance in mm to move.");
+                } else if (cmdBuffer == "stop") {
+                    stepper->forceStop();
+                    stepper->disableOutputs();
+                    enabled = false;
+                    Serial.println("Motor DISABLED.");
+                } else if (cmdBuffer == "pos") {
+                    long curSteps = stepper->getCurrentPosition();
+                    double curMM = curSteps / STEPS_PER_MM;
+                    Serial.print("Position: ");
+                    Serial.print(curMM, 3);
+                    Serial.print(" mm (");
+                    Serial.print(curSteps);
+                    Serial.println(" steps)");
+                } else if (cmdBuffer == "zero") {
+                    stepper->setCurrentPosition(0);
+                    Serial.println("Position zeroed.");
+                } else if (!enabled) {
+                    Serial.println("Motor not enabled. Type 'start' first.");
+                } else {
+                    double mm = cmdBuffer.toDouble();
+                    if (mm == 0 && cmdBuffer != "0") {
+                        Serial.println("Invalid input. Enter a number in mm.");
+                    } else {
+                        long targetSteps = (long)(mm * STEPS_PER_MM);
+                        long curSteps = stepper->getCurrentPosition();
+                        long newTarget = curSteps + targetSteps;
+                        Serial.print("Moving ");
+                        Serial.print(mm, 3);
+                        Serial.print(" mm (");
+                        Serial.print(targetSteps);
+                        Serial.print(" steps) -> target: ");
+                        Serial.println(newTarget);
+                        stepper->moveTo(newTarget);
+                    }
+                }
+                cmdBuffer = "";
+                Serial.print("> ");
+            }
+        } else {
+            cmdBuffer += c;
+        }
+    }
+
+    // Print when move completes
+    static bool wasRunning = false;
+    if (wasRunning && !stepper->isRunning()) {
+        long curSteps = stepper->getCurrentPosition();
+        double curMM = curSteps / STEPS_PER_MM;
+        Serial.print("Done. Position: ");
+        Serial.print(curMM, 3);
+        Serial.print(" mm (");
+        Serial.print(curSteps);
+        Serial.println(" steps)");
+        Serial.print("> ");
+    }
+    wasRunning = stepper->isRunning();
+}

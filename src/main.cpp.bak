@@ -1,0 +1,150 @@
+#include <Arduino.h>
+#include <ESP32Encoder.h>
+#include <FastAccelStepper.h>
+#include <PID_v1.h>
+
+// --- Hardware Pin Definitions ---
+const int PIN_STEP = 12;
+const int PIN_DIR  = 13;
+const int PIN_ENC_A = 10; // Linear Encoder A
+const int PIN_ENC_B = 11; // Linear Encoder B
+const int PIN_ENA  = 15; // CL57T Enable (LOW = motor on)
+const int PIN_FAULT = 14; // CL57T Alarm Output
+
+// --- Mechanical & Conversion Constants ---
+const double SCREW_LEAD_MM = 5.0;      // 1605 Ball Screw (5mm pitch)
+const int STEPS_PER_REV = 1600;        // Set your CL57T dip switches to 1600
+const double ENCODER_RES_MM = 0.005;   // 5um resolution
+const double STEPS_PER_MM = (double)STEPS_PER_REV / SCREW_LEAD_MM;
+
+// --- Motion Parameters ---
+double amplitude = 0.5; // 0.5mm (1mm total travel)
+double frequency = 0.1; // 0.1Hz oscillation (slow test)
+unsigned long startTime;
+
+// --- State ---
+bool running = false;
+
+// --- PID & Control Variables ---
+double targetPos = 0, actualPos = 0, stepOutput = 0;
+PID myPID(&actualPos, &stepOutput, &targetPos, 2.0, 0.1, 0.05, DIRECT);
+
+// --- Objects ---
+ESP32Encoder linearEncoder;
+FastAccelStepperEngine engine = FastAccelStepperEngine();
+FastAccelStepper *stepper = NULL;
+
+// --- Serial Command Buffer ---
+String cmdBuffer = "";
+
+void handleCommand(const String &cmd) {
+    if (cmd == "START") {
+        if (!running) {
+            running = true;
+            linearEncoder.clearCount();
+            startTime = millis();
+            Serial.println("OK:STARTED");
+        }
+    } else if (cmd == "STOP") {
+        if (running) {
+            running = false;
+            stepper->stopMove();
+            stepper->moveTo(0);
+            Serial.println("OK:STOPPED");
+        }
+    } else if (cmd == "STATUS") {
+        Serial.println(running ? "STATUS:RUNNING" : "STATUS:IDLE");
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    delay(2000); // Wait for USB CDC to enumerate
+
+    // 1. Initialize Linear Encoder (Hardware PCNT)
+    ESP32Encoder::useInternalWeakPullResistors = puType::UP;
+    linearEncoder.attachFullQuad(PIN_ENC_A, PIN_ENC_B);
+    linearEncoder.clearCount();
+
+    // 2. Initialize Stepper Engine
+    engine.init();
+    stepper = engine.stepperConnectToPin(PIN_STEP);
+    if (stepper) {
+        stepper->setDirectionPin(PIN_DIR, true, 500);
+        stepper->setEnablePin(PIN_ENA);  // LOW = enabled (default)
+        stepper->setAutoEnable(true);    // Enable before move, disable after
+        stepper->setDelayToEnable(120000); // 120ms delay before stepping
+        stepper->setDelayToDisable(500);   // 500ms hold after last step
+        stepper->setAcceleration(50000); // Steps/s^2
+        stepper->setSpeedInHz(16000);    // 10mm/s @ 1600 steps/mm
+    }
+
+    // 3. Initialize PID
+    myPID.SetMode(AUTOMATIC);
+    myPID.SetOutputLimits(-100, 100);
+
+    pinMode(PIN_FAULT, INPUT_PULLUP);
+
+    Serial.println("STATUS:IDLE");
+}
+
+void loop() {
+    // 1. Check for serial commands
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\n' || c == '\r') {
+            cmdBuffer.trim();
+            if (cmdBuffer.length() > 0) {
+                handleCommand(cmdBuffer);
+                cmdBuffer = "";
+            }
+        } else {
+            cmdBuffer += c;
+        }
+    }
+
+    // 2. Safety: Check Driver Alarm
+    if (digitalRead(PIN_FAULT) == LOW) {
+        running = false;
+        stepper->stopMove();
+        Serial.println("ALARM:FAULT");
+        while(1);
+    }
+
+    if (!running) {
+        static unsigned long lastHeartbeat = 0;
+        if (millis() - lastHeartbeat > 5000) {
+            Serial.println("STATUS:IDLE");
+            lastHeartbeat = millis();
+        }
+        delay(10);
+        return;
+    }
+
+    // --- Active motion loop ---
+    double t = (millis() - startTime) / 1000.0;
+
+    // 3. Calculate Target Position (Sine Wave)
+    targetPos = amplitude * sin(2 * PI * frequency * t);
+
+    // 4. Read Actual Position (Linear Encoder mm)
+    actualPos = linearEncoder.getCount() * ENCODER_RES_MM;
+
+    // 5. Update PID
+    myPID.Compute();
+
+    // 6. Drive Stepper
+    long targetSteps = (long)(targetPos * STEPS_PER_MM);
+    stepper->moveTo(targetSteps);
+
+    // 7. Telemetry (CSV: time_ms, target_mm, actual_mm, step_pos)
+    Serial.print(millis() - startTime);
+    Serial.print(',');
+    Serial.print(targetPos, 4);
+    Serial.print(',');
+    Serial.print(actualPos, 4);
+    Serial.print(',');
+    Serial.println(stepper->getCurrentPosition());
+
+    delay(1); // ~1kHz loop
+}
