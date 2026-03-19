@@ -20,6 +20,7 @@ Commands:
   PID_OFF    - Disable PID,       responds "OK:PID_OFF"
   STATUS     - Query state,       responds "STATUS:<state>"
   POS        - Query position,    responds "POS:<step_mm>,<enc_mm>"
+  ZERO       - Zero coordinates,  responds "OK:ZEROED"
 """
 import serial
 import serial.tools.list_ports
@@ -100,6 +101,9 @@ class StepperController:
 
     def home_pos(self):
         self.send_command("HOME+")
+
+    def zero(self):
+        self.send_command("ZERO")
 
     def move(self, mm):
         self.send_command(f"MOVE:{mm}")

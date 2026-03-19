@@ -412,6 +412,10 @@ void handleCommand(const String &cmd) {
         myPID.SetMode(MANUAL);
         pidOutput = 0.0;
         Serial.println("OK:PID_OFF");
+    } else if (cmd == "ZERO") {
+        stepper->setCurrentPosition(0);
+        clearEncoderCount();
+        Serial.println("OK:ZEROED");
     }
 }
 

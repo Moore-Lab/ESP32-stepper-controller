@@ -547,6 +547,10 @@ class ControllerTab(ttk.Frame):
             motion_row, text="Home (+)", command=self._on_home_pos, state=tk.DISABLED
         )
         self.home_pos_btn.pack(side=tk.LEFT, padx=8)
+        self.zero_btn = ttk.Button(
+            motion_row, text="Zero", command=self._on_zero, state=tk.DISABLED
+        )
+        self.zero_btn.pack(side=tk.LEFT, padx=8)
 
         # Jog row
         jog_row = ttk.Frame(ctrl_frame)
@@ -799,7 +803,7 @@ class ControllerTab(ttk.Frame):
 
     def _set_buttons_disconnected(self):
         for btn in [self.start_btn, self.stop_btn, self.home_neg_btn, self.home_pos_btn,
-                     self.jog_neg_btn, self.jog_pos_btn, self.move_btn,
+                     self.zero_btn, self.jog_neg_btn, self.jog_pos_btn, self.move_btn,
                      self.enable_btn, self.disable_btn,
                      self.apply_params_btn, self.apply_wave_btn,
                      self.send_pid_btn, self.pid_toggle_btn, self.autotune_btn]:
@@ -810,6 +814,7 @@ class ControllerTab(ttk.Frame):
         self.stop_btn.config(state=tk.DISABLED)
         self.home_neg_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
         self.home_pos_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
+        self.zero_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
         self.jog_neg_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
         self.jog_pos_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
         self.move_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
@@ -826,6 +831,7 @@ class ControllerTab(ttk.Frame):
         self.stop_btn.config(state=tk.NORMAL)
         self.home_neg_btn.config(state=tk.DISABLED)
         self.home_pos_btn.config(state=tk.DISABLED)
+        self.zero_btn.config(state=tk.DISABLED)
         self.jog_neg_btn.config(state=tk.DISABLED)
         self.jog_pos_btn.config(state=tk.DISABLED)
         self.move_btn.config(state=tk.DISABLED)
@@ -1011,6 +1017,12 @@ class ControllerTab(ttk.Frame):
         self.ctrl.home_pos()
         self.motor_status_var.set("Homing (+)")
         self._set_buttons_busy()
+
+    def _on_zero(self):
+        if not self.ctrl:
+            return
+        self.ctrl.zero()
+        self.motor_status_var.set("Zeroed")
 
     def _on_jog(self, mm):
         if not self.ctrl:
