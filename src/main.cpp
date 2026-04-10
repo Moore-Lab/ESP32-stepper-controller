@@ -416,6 +416,30 @@ void handleCommand(const String &cmd) {
         stepper->setCurrentPosition(0);
         clearEncoderCount();
         Serial.println("OK:ZEROED");
+    } else if (cmd == "GOHOME") {
+        if (!enabled) {
+            stepper->enableOutputs();
+            enabled = true;
+        }
+        if (state == IDLE) {
+            state = MOVING;
+            stepper->setSpeedInHz(normalSpeed);
+            stepper->setAcceleration(normalAccel);
+            stepper->moveTo(0);
+            Serial.println("OK:GOING_HOME");
+        }
+    } else if (cmd.startsWith("SETPOS:")) {
+        double mm = cmd.substring(7).toDouble();
+        long steps = (long)(mm * STEPS_PER_MM);
+        stepper->setCurrentPosition(steps);
+        // Set encoder software offset so encoder reading matches mm
+        long encTarget = (long)(mm / ENCODER_RES_MM);
+        pcnt_counter_pause(ENC_PCNT_UNIT);
+        pcnt_counter_clear(ENC_PCNT_UNIT);
+        encoderOverflow = encTarget;
+        pcnt_counter_resume(ENC_PCNT_UNIT);
+        Serial.print("OK:SETPOS:");
+        Serial.println(mm, 4);
     }
 }
 
@@ -525,7 +549,7 @@ void loop() {
             stepper->moveTo(targetSteps);
 
             sendTelemetry(targetMM, pidEnabled ? pidOutput : 0.0);
-            delay(1);
+            delay(10);
             break;
         }
 
@@ -535,7 +559,7 @@ void loop() {
                 Serial.println("OK:MOVE_DONE");
             }
             sendTelemetry(stepMM, 0.0);
-            delay(1);
+            delay(10);
             break;
 
         case LIMIT_BACKOFF:
@@ -546,12 +570,12 @@ void loop() {
                 Serial.println("OK:BACKOFF_DONE");
             }
             sendTelemetry(stepMM, 0.0);
-            delay(1);
+            delay(10);
             break;
 
         case HOMING:
             sendTelemetry(stepMM, 0.0);
-            delay(1);
+            delay(10);
             break;
 
         case HOMING_BACKOFF:
@@ -564,7 +588,7 @@ void loop() {
                 Serial.println(homingDir == -1 ? "OK:HOMED_NEG" : "OK:HOMED_POS");
             }
             sendTelemetry(stepMM, 0.0);
-            delay(1);
+            delay(10);
             break;
 
         case IDLE:

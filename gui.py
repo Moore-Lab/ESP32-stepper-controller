@@ -44,6 +44,7 @@ DEFAULT_SETTINGS = {
     "pid_ki": 0.0,
     "pid_kd": 0.0,
     "live_plot_window_s": 30,
+    "last_position_mm": 0.0,
 }
 
 
@@ -551,6 +552,10 @@ class ControllerTab(ttk.Frame):
             motion_row, text="Zero", command=self._on_zero, state=tk.DISABLED
         )
         self.zero_btn.pack(side=tk.LEFT, padx=8)
+        self.go_home_btn = ttk.Button(
+            motion_row, text="Go Home", command=self._on_go_home, state=tk.DISABLED
+        )
+        self.go_home_btn.pack(side=tk.LEFT, padx=8)
 
         # Jog row
         jog_row = ttk.Frame(ctrl_frame)
@@ -803,8 +808,8 @@ class ControllerTab(ttk.Frame):
 
     def _set_buttons_disconnected(self):
         for btn in [self.start_btn, self.stop_btn, self.home_neg_btn, self.home_pos_btn,
-                     self.zero_btn, self.jog_neg_btn, self.jog_pos_btn, self.move_btn,
-                     self.enable_btn, self.disable_btn,
+                     self.zero_btn, self.go_home_btn, self.jog_neg_btn, self.jog_pos_btn,
+                     self.move_btn, self.enable_btn, self.disable_btn,
                      self.apply_params_btn, self.apply_wave_btn,
                      self.send_pid_btn, self.pid_toggle_btn, self.autotune_btn]:
             btn.config(state=tk.DISABLED)
@@ -815,6 +820,7 @@ class ControllerTab(ttk.Frame):
         self.home_neg_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
         self.home_pos_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
         self.zero_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
+        self.go_home_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
         self.jog_neg_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
         self.jog_pos_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
         self.move_btn.config(state=tk.NORMAL if self._motor_enabled else tk.DISABLED)
@@ -832,6 +838,7 @@ class ControllerTab(ttk.Frame):
         self.home_neg_btn.config(state=tk.DISABLED)
         self.home_pos_btn.config(state=tk.DISABLED)
         self.zero_btn.config(state=tk.DISABLED)
+        self.go_home_btn.config(state=tk.DISABLED)
         self.jog_neg_btn.config(state=tk.DISABLED)
         self.jog_pos_btn.config(state=tk.DISABLED)
         self.move_btn.config(state=tk.DISABLED)
@@ -870,6 +877,12 @@ class ControllerTab(ttk.Frame):
             self.motor_status_var.set("Idle (disabled)")
             self._motor_enabled = False
             self._set_buttons_idle()
+            # Restore last known position so the ESP32 knows where it is
+            last_pos = self.app.settings.get("last_position_mm", 0.0)
+            if last_pos != 0.0:
+                self._cur_pos = last_pos
+                self.ctrl.send_command(f"SETPOS:{last_pos:.4f}")
+                self.position_var.set(f"Position: {last_pos:.4f} mm (restored)")
             # Start position polling
             self._poll_position()
         except Exception as e:
@@ -1023,6 +1036,13 @@ class ControllerTab(ttk.Frame):
             return
         self.ctrl.zero()
         self.motor_status_var.set("Zeroed")
+
+    def _on_go_home(self):
+        if not self.ctrl:
+            return
+        self.ctrl.go_home()
+        self.motor_status_var.set("Going to 0")
+        self._set_buttons_busy()
 
     def _on_jog(self, mm):
         if not self.ctrl:
@@ -1202,6 +1222,13 @@ class ControllerTab(ttk.Frame):
         if line and line[0].isdigit():
             if self.logger.is_active:
                 self.logger.write_line(line)
+            # Update current position from actual_mm (index 2)
+            parts = line.split(',')
+            if len(parts) >= 3:
+                try:
+                    self._cur_pos = float(parts[2])
+                except ValueError:
+                    pass
             # Feed autotune buffer
             if self._autotuner and self._autotuner.is_running:
                 parts = line.split(',')
@@ -1285,6 +1312,7 @@ class ControllerTab(ttk.Frame):
             "pid_kp": self._safe_float(self.kp_var.get(), 1.0),
             "pid_ki": self._safe_float(self.ki_var.get(), 0.0),
             "pid_kd": self._safe_float(self.kd_var.get(), 0.0),
+            "last_position_mm": self._cur_pos,
         }
 
     @staticmethod

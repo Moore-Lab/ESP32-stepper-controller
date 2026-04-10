@@ -21,6 +21,8 @@ Commands:
   STATUS     - Query state,       responds "STATUS:<state>"
   POS        - Query position,    responds "POS:<step_mm>,<enc_mm>"
   ZERO       - Zero coordinates,  responds "OK:ZEROED"
+  GOHOME     - Move to position 0, responds "OK:GOING_HOME" then "OK:MOVE_DONE"
+  SETPOS:<mm> - Set current position without moving, responds "OK:SETPOS:<mm>"
 """
 import serial
 import serial.tools.list_ports
@@ -104,6 +106,12 @@ class StepperController:
 
     def zero(self):
         self.send_command("ZERO")
+
+    def go_home(self):
+        self.send_command("GOHOME")
+
+    def set_position(self, mm):
+        self.send_command(f"SETPOS:{mm}")
 
     def move(self, mm):
         self.send_command(f"MOVE:{mm}")
